@@ -9,7 +9,7 @@ function diemap {
 echo "Google Earth Pro ... in a box"
 echo "Home Directory: $HOME"
 echo "User: '$(id -un)' ($(id -u))"
-echo "Group: '$(id -gn)' ($(id -u))"
+echo "Group: '$(id -gn)' ($(id -g))"
 echo "Home: '$HOME'"
 echo "Display: '$DISPLAY'"
 if [[ ! -e "$HOME/.Xauthority" ]]; then diemap "$HOME/.Xauthority"; fi

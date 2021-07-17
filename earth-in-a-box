@@ -25,6 +25,9 @@ print-help() {
   Commands - Optional; Mostly for Maintenace and Debug
     build - Builds the docker image (pulling anything that must be pulled)
     create - Creates and configures the docker container that will run Earth Pro
+    rebuild - Does a (sort of) rebuild; removing the image/container, recreating
+              the container from whatever point it thinks should be restarted; you have
+              to manually rebuild using docker to get a full rebuild
 
   Location: $SCRIPT_DIR
   Full Path: $FULL_SCRIPT_NAME  
@@ -98,14 +101,20 @@ build-image() {
   docker "${parms[@]}" ./
 }
 rebuild-image() {
-
+  remove-image
+  build-image
 }
 remove-image() { docker rmi --force "$IMAGE"; }
+remove-container() { docker rm --force "$CONTAINER"; }
 
 check-image-exists() {
   docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'
 }
+check-container-exists() {
+  docker ps -a --format "{{.Names}}" | grep -Pq "^'"$IMAGE"'$"
+}
 
+cd "$SCRIPT_DIR"
 
 # Uncomment to trap script exits -------------------------------------------------------
 
@@ -117,21 +126,31 @@ check-image-exists() {
 
 # Uncomment to trap script exits -------------------------------------------------------
 
-cd "$SCRIPT_DIR"
 
 
 if (( $# == 0 )); then
+  check-image-exists || build-image || die "Failed to build image"
+  check-container-exists || create-container || die "Failed to create container"  
   start-container
   exit 0
 fi
 
 if (( $# == 1 )) && [[ $1 == "build" ]]; then
-  build-image
+  build-image || die "Failed to build image"
   exit 0
 fi
 
 if (( $# == 1 )) && [[ $1 == "create" ]]; then
-  create-container
+  create-container || die "Failed to create container"
+  exit 0
+fi
+
+if (( $# >= 1 )) && [[ $1 == "rebuild" ]]; then  
+  remove-image || die "Failed to remove existing image"
+  remove-container || die "Failed to remove container"
+  build-image || die "Failed to remove build image"
+  create-container || die "Failed to create container"
+  start-container
   exit 0
 fi
 
