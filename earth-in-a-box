@@ -1,0 +1,147 @@
+#!/usr/bin/env zsh
+die() { print -- $'\e[1;91mERROR\e[1;97m:\e[0;37m '"${1:-}"; exit "${2:-1}"; }
+heading() { print -- $'\e[1;95m:: \e[0;37m '"$1"' \e[1;95m::\e[0;37m'; }
+ifo() { print -- $'\e[1;94m -\e[0;37m' "$@" '\e[0;37m'; }
+
+typeset -gr SCRIPT_DIR="${${(%):-%x/..}:A}" FULL_SCRIPT_NAME="${${(%):-%x}:A}"
+typeset -gr SCRIPT_NAME="${FULL_SCRIPT_NAME##*/}"
+typeset -gr LOCAL_DIR="${${:-${LOCAL_PREFIX}/..}:A}"
+typeset -gr LOG_DIR="$LOCAL_DIR/log"
+typeset -gr BIN_DIR="$LOCAL_DIR/bin"
+
+[[ -e "$LOCAL_DIR" ]] || die "Couldn't find local prefix path; set LOCAL_PREFIX"
+[[ -e "$LOG_DIR" ]] || mkdir -p "$LOG_DIR"
+[[ -e "$LOG_DIR" ]] || die "Couldn't create log directory"
+
+typeset -g IMAGE='earth-box' CONTAINER='earth-box'
+
+
+print-help() {
+  cat <<EOF  
+  ${SCRIPT_NAME} - Attempts to configure and start Google Earth Pro in a Docker Container
+
+  ./${SCRIPT_NAME} [command]
+
+  Commands - Optional; Mostly for Maintenace and Debug
+    build - Builds the docker image (pulling anything that must be pulled)
+    create - Creates and configures the docker container that will run Earth Pro
+
+  Location: $SCRIPT_DIR
+  Full Path: $FULL_SCRIPT_NAME  
+EOF
+  exit 2
+}
+
+typeset -gi USERID=0 GROUPID=0
+typeset -g USERNAME='' GROUPNAME=''
+USERNAME="$(id -un)" || die "Failed to get user name via id -u"
+GROUPNAME="$(id -gn)" || die "Failed to get group name via id -gn"
+USERID="$(id -u)" || die "Failed to get user ID via id -u"
+GROUPID="$(id -g)" || die "Failed to get user ID via id -g"
+
+# Functions for getting things for parameters
+
+output-dri-devices() {
+  local -a cmd=( find /dev/dri -maxdepth 1 -type c )  
+  if [[ "${1:-}" == "-v" ]]; then
+    "${cmd[@]}" | while read DRI_DEV; do
+      print -- -v
+      print -- "$DRI_DEV:$DRI_DEV"
+    done
+  else
+    "${cmd[@]}"
+  fi  
+}
+
+create-container() {
+  local -a parms=(
+    create    
+    --name "$CONTAINER"
+    --privileged 
+    -a STDIN -a STDOUT -a STDERR 
+    -e "DISPLAY=$DISPLAY"
+    -e "XAUTHORITY=$XAUTHORITY"
+    -h "$HOSTNAME"    
+    -v "$XAUTHORITY:$XAUTHORITY"
+    -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority"
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw
+    -v "/etc/group:/etc/group:ro" 
+  )
+  
+  heading "Detected DRI Devices"
+
+  output-dri-devices -v | while read ENTRY; do    
+    parms+=( "$ENTRY" )
+    if [[ "$ENTRY" == "-v" ]]; then continue; fi
+    ifo "${ENTRY%%:*}"    
+  done
+
+  heading "Creating Container"
+  ifo "docker ${parms[@]} $CONTAINER"
+  docker "${parms[@]}" "$CONTAINER"
+}
+
+start-container() { docker start -i "$CONTAINER"; }
+
+build-image() { 
+  
+  local -a parms=(
+    build
+    -t "$IMAGE"
+    --build-arg "USERID=$USERID"
+    --build-arg "USERNAME=$USERNAME"
+    --build-arg "GROUPID=$GROUPID"
+    --build-arg "GROUPNAME=$GROUPNAME"
+  )
+
+  #print -l "${parms[@]}"
+  docker "${parms[@]}" ./
+}
+rebuild-image() {
+
+}
+remove-image() { docker rmi --force "$IMAGE"; }
+
+check-image-exists() {
+  docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'
+}
+
+
+# Uncomment to trap script exits -------------------------------------------------------
+
+# trap cleanup SIGINT SIGTERM ERR EXIT
+# cleanup() {
+#   trap - SIGINT SIGTERM ERR EXIT
+#   # script cleanup here
+# }
+
+# Uncomment to trap script exits -------------------------------------------------------
+
+cd "$SCRIPT_DIR"
+
+
+if (( $# == 0 )); then
+  start-container
+  exit 0
+fi
+
+if (( $# == 1 )) && [[ $1 == "build" ]]; then
+  build-image
+  exit 0
+fi
+
+if (( $# == 1 )) && [[ $1 == "create" ]]; then
+  create-container
+  exit 0
+fi
+
+print-help
+# docker run -d \
+#    -v /tmp/.X11-unix:/tmp/.X11-unix \
+#    -e DISPLAY=$DISPLAY \
+#    -e XAUTHORITY="$XAUTHORITY" \
+#    -h "${HOSTNAME}" \
+#    -v /dev/dri/card0:/dev/dri/card0 \
+#    -v "${XAUTHORITY}:${XAUTHORITY}" \
+#    -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority" \
+#    --name  earth earth
