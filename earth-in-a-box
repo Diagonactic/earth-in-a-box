@@ -56,6 +56,8 @@ output-dri-devices() {
   fi  
 }
 
+# Container Functions
+check-container-exists() { docker ps -a --format "{{.Names}}" | grep -Pq '^'"$CONTAINER"'$'; }
 create-container() {
   local -a parms=(
     create    
@@ -69,6 +71,7 @@ create-container() {
     -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority"
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw
     -v "/etc/group:/etc/group:ro" 
+    -v 
   )
   
   heading "Detected DRI Devices"
@@ -84,8 +87,11 @@ create-container() {
   docker "${parms[@]}" "$CONTAINER"
 }
 
-start-container() { docker start -i "$CONTAINER"; }
+start-container() { QT_GRAPHICSSYSTEM="native" docker start -i "$CONTAINER"; }
+remove-container() { docker rm --force "$CONTAINER"; }
 
+# Image Functions
+check-image-exists() { docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'; }
 build-image() { 
   
   local -a parms=(
@@ -105,14 +111,7 @@ rebuild-image() {
   build-image
 }
 remove-image() { docker rmi --force "$IMAGE"; }
-remove-container() { docker rm --force "$CONTAINER"; }
 
-check-image-exists() {
-  docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'
-}
-check-container-exists() {
-  docker ps -a --format "{{.Names}}" | grep -Pq "^'"$IMAGE"'$"
-}
 
 cd "$SCRIPT_DIR"
 
@@ -129,9 +128,17 @@ cd "$SCRIPT_DIR"
 
 
 if (( $# == 0 )); then
-  check-image-exists || build-image || die "Failed to build image"
-  check-container-exists || create-container || die "Failed to create container"  
-  start-container
+  check-image-exists || {    
+    ifo "Couldn't find image with the name $IMAGE; automatically creating image"
+    build-image
+  }  || die "Failed to build image"
+  set +x
+  check-container-exists || {
+    ifo "Couldn't find a container with the name $CONTAINER; automatically creating container"
+    create-container
+  } || die "Failed to create container"
+
+  start-container || die "Failed to start container $CONTAINER using image $IMAGE"
   exit 0
 fi
 
