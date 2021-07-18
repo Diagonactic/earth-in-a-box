@@ -49,6 +49,11 @@ Both of my primary computers run OpenSUSE Tumbleweed and I use Google Earth most
 
 A bit worse than blue-on-black,... Yeah... Crazy, huh?  If you have any hints/things you can point me at, please let me know in the Issues or however you want to reach out to me.  I poke at it from time to time.
 
+Current Research:
+
+ - https://stackoverflow.com/questions/24095968/docker-for-gui-based-environments/55989420#55989420
+ - https://stackoverflow.com/questions/35040020/gui-qt-application-in-a-docker-container/35040140#35040140
+ - https://stackoverflow.com/questions/52501594/qt-app-ui-elements-randomly-rendered-as-blank-black-in-docker (unhelpful)
 
 
 This may only be happening on my workstation, which runs OpenSUSE Tumbleweed, the `nvidia` proprietary driver and Xorg

@@ -35,4 +35,6 @@ RUN setup.sh ${USERID} ${GROUPID} ${USERNAME}
 # RUN useradd -d /home/${USER} -s /bin/bash -m ${USER} -u 1000 -g 1000
 
 USER ${USERNAME}
+VOLUME /home/${USER}/.googleearth
+
 CMD /usr/bin/earth-in-a-box.sh

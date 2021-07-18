@@ -18,4 +18,6 @@ if [[ ! -e "/tmp/.X11-unix" ]]; then diemap "/tmp/.X11-unix"; fi
 
 rm -rf /home/acousticiris/.googleearth/instance-running-lock
 
+export QT_X11_NO_MITSHM=1
+
 /opt/google/earth/pro/googleearth-bin

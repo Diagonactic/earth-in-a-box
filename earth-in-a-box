@@ -28,6 +28,8 @@ print-help() {
     rebuild - Does a (sort of) rebuild; removing the image/container, recreating
               the container from whatever point it thinks should be restarted; you have
               to manually rebuild using docker to get a full rebuild
+    clean - Does a (sort of) clean; removing the image/container, but not removing
+            intermediate containers
 
   Location: $SCRIPT_DIR
   Full Path: $FULL_SCRIPT_NAME  
@@ -59,19 +61,25 @@ output-dri-devices() {
 # Container Functions
 check-container-exists() { docker ps -a --format "{{.Names}}" | grep -Pq '^'"$CONTAINER"'$'; }
 create-container() {
+  local EARTHCFG="${HOME}/.googleearth"
+  mkdir -p "$EARTHCFG"
+
   local -a parms=(
     create    
     --name "$CONTAINER"
     --privileged 
+    --shm-size 128M
     -a STDIN -a STDOUT -a STDERR 
-    -e "DISPLAY=$DISPLAY"
+    -e "DISPLAY=unix$DISPLAY"
     -e "XAUTHORITY=$XAUTHORITY"
     -h "$HOSTNAME"    
+    -u "$USERID:$GROUPID"
     -v "$XAUTHORITY:$XAUTHORITY"
     -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority"
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw
     -v "/etc/group:/etc/group:ro" 
-    -v 
+    -v "/dev/shm:/dev/shm"    
+    -v "$EARTHCFG:$EARTHCFG"
   )
   
   heading "Detected DRI Devices"
@@ -83,6 +91,7 @@ create-container() {
   done
 
   heading "Creating Container"
+  ifo "Mapped $EARTHCFG to container, which will pick up configuration/logging and can coexist with a non-docker version (however, requires same version!)"
   ifo "docker ${parms[@]} $CONTAINER"
   docker "${parms[@]}" "$CONTAINER"
 }
@@ -144,6 +153,12 @@ fi
 
 if (( $# == 1 )) && [[ $1 == "build" ]]; then
   build-image || die "Failed to build image"
+  if check-container-exists; then 
+    ifo "Removing $CONTAINER container since image was re-built"
+    remove-container || die "Failed to remove existing container"
+  fi
+
+  create-container
   exit 0
 fi
 
@@ -152,9 +167,20 @@ if (( $# == 1 )) && [[ $1 == "create" ]]; then
   exit 0
 fi
 
+if (( $# >= 1 )) && [[ $1 == "clean" ]]; then  
+  if check-image-exists; then
+    remove-image || die "Failed to remove existing image"
+  fi
+  if check-container-exists; then
+    remove-container || die "Failed to remove container"
+  fi
+  
+  exit 0
+fi
+
 if (( $# >= 1 )) && [[ $1 == "rebuild" ]]; then  
-  remove-image || die "Failed to remove existing image"
-  remove-container || die "Failed to remove container"
+  "${FULL_SCRIPT_NAME}" clean || die "Failed to clean docker components"
+
   build-image || die "Failed to remove build image"
   create-container || die "Failed to create container"
   start-container
