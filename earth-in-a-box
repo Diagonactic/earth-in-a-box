@@ -24,13 +24,25 @@ print-help() {
 
   Commands - Optional; Mostly for Maintenace and Debug
     build - Builds the docker image (pulling anything that must be pulled)
-    create - Creates and configures the docker container that will run Earth Pro
-    rebuild - Does a (sort of) rebuild; removing the image/container, recreating
-              the container from whatever point it thinks should be restarted; you have
-              to manually rebuild using docker to get a full rebuild
-    clean - Does a (sort of) clean; removing the image/container, but not removing
-            intermediate containers
 
+             Options:
+                --run - When completed, start the container normally
+
+    create - Creates and configures the docker container that will run Earth Pro
+    
+             Options:
+                --run - When completed, start the container normally
+
+    rebuild - A (sort of) rebuild.  Removes the image/container, recreates container from 
+              whatever point it thinks should be restarted.
+
+              Options:
+                --run - When completed, start the container normally
+
+    clean   - Does a (sort of) clean; removing the image/container, but not removing
+              intermediate containers
+
+              
   Location: $SCRIPT_DIR
   Full Path: $FULL_SCRIPT_NAME  
 EOF
@@ -66,8 +78,7 @@ create-container() {
 
   local -a parms=(
     create    
-    --name "$CONTAINER"
-    --privileged 
+    --name "$CONTAINER"    
     --shm-size 128M
     -a STDIN -a STDOUT -a STDERR 
     -e "DISPLAY=unix$DISPLAY"
@@ -148,46 +159,57 @@ if (( $# == 0 )); then
   } || die "Failed to create container"
 
   start-container || die "Failed to start container $CONTAINER using image $IMAGE"
-  exit 0
+  exit 0  
+elif (( $# >= 1 )); then
+  typeset COMMAND="$1"; shift
+  case "$COMMAND" in
+    clean) 
+              if check-image-exists; then
+                heading "Removing $IMAGE image"
+                remove-image || die "Failed to remove existing image"
+              fi
+              if check-container-exists; then
+                heading "Removing $CONTAINER container"
+                remove-container || die "Failed to remove container"
+              fi  
+    ;;
+    create)
+              if check-container-exists; then
+                heading "Removing $CONTAINER container"
+                remove-container || die "Failed to remove existing container"
+              fi
+
+              create-container
+
+              if [[ "${1:-}" == "--run" ]]; then
+                start-container
+              fi
+    ;;
+    build)
+              heading "Building $IMAGE image"
+              build-image || die "Failed to build image"
+              "${FULL_SCRIPT_NAME}" create
+
+              if [[ "${1:-}" == "--run" ]]; then
+                start-container
+              fi              
+    ;;
+    rebuild)
+              "${FULL_SCRIPT_NAME}" clean || die "Failed to clean docker components"
+              "${FULL_SCRIPT_NAME}" build || die "Failed to clean docker components"              
+
+              if [[ "${1:-}" == "--run" ]]; then
+                start-container
+              fi              
+    ;;
+    *build)
+              
+    ;;
+    *)        
+              print-help   
+    ;;
+  esac
 fi
-
-if (( $# == 1 )) && [[ $1 == "build" ]]; then
-  build-image || die "Failed to build image"
-  if check-container-exists; then 
-    ifo "Removing $CONTAINER container since image was re-built"
-    remove-container || die "Failed to remove existing container"
-  fi
-
-  create-container
-  exit 0
-fi
-
-if (( $# == 1 )) && [[ $1 == "create" ]]; then
-  create-container || die "Failed to create container"
-  exit 0
-fi
-
-if (( $# >= 1 )) && [[ $1 == "clean" ]]; then  
-  if check-image-exists; then
-    remove-image || die "Failed to remove existing image"
-  fi
-  if check-container-exists; then
-    remove-container || die "Failed to remove container"
-  fi
-  
-  exit 0
-fi
-
-if (( $# >= 1 )) && [[ $1 == "rebuild" ]]; then  
-  "${FULL_SCRIPT_NAME}" clean || die "Failed to clean docker components"
-
-  build-image || die "Failed to remove build image"
-  create-container || die "Failed to create container"
-  start-container
-  exit 0
-fi
-
-print-help
 # docker run -d \
 #    -v /tmp/.X11-unix:/tmp/.X11-unix \
 #    -e DISPLAY=$DISPLAY \
