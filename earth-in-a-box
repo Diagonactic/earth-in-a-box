@@ -123,6 +123,10 @@ build-image() {
     --build-arg "GROUPNAME=$GROUPNAME"
   )
 
+  if [[ "$1" == "clean" ]]; then
+    parms+=( --no-cache )
+  fi
+
   #print -l "${parms[@]}"
   docker "${parms[@]}" ./
 }
@@ -164,14 +168,15 @@ elif (( $# >= 1 )); then
   typeset COMMAND="$1"; shift
   case "$COMMAND" in
     clean) 
+              if check-container-exists; then
+                heading "Removing $CONTAINER container"
+                remove-container || die "Failed to remove container"
+              fi
               if check-image-exists; then
                 heading "Removing $IMAGE image"
                 remove-image || die "Failed to remove existing image"
               fi
-              if check-container-exists; then
-                heading "Removing $CONTAINER container"
-                remove-container || die "Failed to remove container"
-              fi  
+              
     ;;
     create)
               if check-container-exists; then
@@ -187,16 +192,27 @@ elif (( $# >= 1 )); then
     ;;
     build)
               heading "Building $IMAGE image"
-              build-image || die "Failed to build image"
+              if check-image-exists; then
+                heading "Removing $IMAGE image"
+                remove-image || die "Failed to remove existing image"
+              fi
+              if [[ "${1:-}" == "--rebuild" ]]; then
+                build-image || die "Failed to build image"                
+              else
+                build-image clean || die "Failed to build image"
+              fi
+
               "${FULL_SCRIPT_NAME}" create
 
               if [[ "${1:-}" == "--run" ]]; then
                 start-container
-              fi              
+              fi
+
+              
     ;;
     rebuild)
               "${FULL_SCRIPT_NAME}" clean || die "Failed to clean docker components"
-              "${FULL_SCRIPT_NAME}" build || die "Failed to clean docker components"              
+              "${FULL_SCRIPT_NAME}" build --rebuild || die "Failed to rebuild docker components"              
 
               if [[ "${1:-}" == "--run" ]]; then
                 start-container
