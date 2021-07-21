@@ -1,0 +1,3 @@
+IMAGE='earth-box'
+CONTAINER='earth-box'
+IMAGE_TAG='latest'

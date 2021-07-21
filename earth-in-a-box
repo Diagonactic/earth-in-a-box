@@ -1,4 +1,7 @@
 #!/usr/bin/env zsh
+
+setopt EXTENDED_GLOB
+
 die() { print -- $'\e[1;91mERROR\e[1;97m:\e[0;37m '"${1:-}"; exit "${2:-1}"; }
 heading() { print -- $'\e[1;95m:: \e[0;37m '"$1"' \e[1;95m::\e[0;37m'; }
 ifo() { print -- $'\e[1;94m -\e[0;37m' "$@" '\e[0;37m'; }
@@ -13,39 +16,84 @@ typeset -gr BIN_DIR="$LOCAL_DIR/bin"
 [[ -e "$LOG_DIR" ]] || mkdir -p "$LOG_DIR"
 [[ -e "$LOG_DIR" ]] || die "Couldn't create log directory"
 
-typeset -g IMAGE='earth-box' CONTAINER='earth-box'
+typeset -gr DEFAULT_IMAGE='earth-box' DEFAULT_IMAGE_TAG='latest' DEFAULT_CONTAINER='earth-box' CONTAINER_DESC="Google Earth Pro"
+typeset -g IMAGE="$DEFAULT_IMAGE" IMAGE_TAG="$DEFAULT_IMAGE_TAG" CONTAINER="$DEFAULT_CONTAINER"
 
 
 print-help() {
-  cat <<EOF  
-  ${SCRIPT_NAME} - Attempts to configure and start Google Earth Pro in a Docker Container
+  local BTAB="${(r:20:: :):-}"; local OTAB="${(r:12:: :):-}"  
 
-  ./${SCRIPT_NAME} [command]
+  options() print    -- "$OTAB"$'Options:'
+  bold() print -n -- $'\e[1;97m'"$1"$'\e[0;37m\e[0m'
+  bright() print -n -- $'\e[0;97m'"$1"$'\e[0;37m\e[0m'
+  dark() print -n -- $'\e[1;90m'"$1"$'\e[0;37m\e[0m'
+  dim() print -n -- $'\e[0;96m'"$1"$'\e[0;37m\e[0m'
+  bold-dash() { bold "$1"; dim ' - '; print -- "$2"; }
+  bright-dash() { bright "$1"; dim ' - '; print -- "$2"; }
+  pr-cmd() {
+    print
+    bold-dash "  ${(r:7:: :)1}" "$2";
+    shift; shift
+    while (( $# > 0 )); do {
+      print -- "$BTAB$1"
+    } always { shift; } done
+    print
+  }
+  pr-opt() {
+    bright-dash "  $OTAB${(r:15:: :)1}" "$2";
+    shift; shift
+    while (( $# > 0 )); do {
+      print -- "$OTAB$BTAB$1"
+    } always { shift; } done
+  }  
+  pr-copt() {
+    while (( $# > 0 )); do {
+      case "$1" in
+        image)     pr-opt "-i,--image"     "Takes an optional parameter of the image name to use instead of $IMAGE. Leave the" \
+                                           "parameter off to reset to $DEFAULT_IMAGE" ;;
+        container) pr-opt "-c,--container" "Takes an optional parameter of the image name to use instead of $IMAGE. Leave the" \
+                                           "parameter off to reset to $DEFAULT_IMAGE" ;;        
+        tag)       pr-opt "-t,--tag"       "Takes an optional parameter of the image name to use instead of $IMAGE_TAG. Leave the" \
+                                           "parameter off to reset to $DEFAULT_IMAGE_TAG" ;;
+        run)       pr-opt "-r,--run"       "After $CONTAINER starts, run $CONTAINER_DESC" ;;
+      esac
+    } always { shift; } done
+  }
+  options-run() { 
+    options    
+    pr-opt '--run' "After $1, starts $CONTAINER_DESC";    
+  }
+  
+  
+  bold-dash "${SCRIPT_NAME}" "Attempts to configure and start $CONTAINER_DESC in a Docker Container"$'\n'
+  print -n -- "Usage: "; 
+  bold "${SCRIPT_NAME}"; print -- $' \e[0;36m[command]\e[0;34m\n'
+  
+  print -n -- "  For almost all users, simply running "; bright "${SCRIPT_NAME} "; print -- $'\e[0;34m'"is all that is needed.  For development, "
+  print    -- "    maintenance, and removal, the following optional commands can be used."$'\e[0m\n'
+  print    -- $'Commands:\n'
+  pr-cmd build "Builds the $CONTAINER_DESC with the name '$IMAGE:$IMAGE_TAG' using docker build, removes" \
+               "any existing '$CONTAINER' if one exists, and creates a new one"
+  options-run building/creating
+  pr-copt image tag container
+  
+  pr-cmd clean "Cleans docker deployment of $CONTAINER_DESC by remocing container named '$CONTAINER'" \
+               "and image named '$IMAGE:$IMAGE_TAG'"
 
-  Commands - Optional; Mostly for Maintenace and Debug
-    build - Builds the docker image (pulling anything that must be pulled)
+  pr-cmd create  "Creates the $CONTAINER_DESC container '$CONTAINER' from '$IMAGE:$IMAGE_TAG', " \
+                 "creating it if it doesn't exist"                 
+  options-run creating
+  pr-copt container
+  
+  pr-cmd rebuild "Cleans and builds $CONTAINER_DESC '$IMAGE:$IMAGE_TAG' using docker build, skipping" \
+                 "the build cache and pulling images if they are out of date."
+  options-run rebuilding/creating
 
-             Options:
-                --run - When completed, start the container normally
-
-    create - Creates and configures the docker container that will run Earth Pro
-    
-             Options:
-                --run - When completed, start the container normally
-
-    rebuild - A (sort of) rebuild.  Removes the image/container, recreates container from 
-              whatever point it thinks should be restarted.
-
-              Options:
-                --run - When completed, start the container normally
-
-    clean   - Does a (sort of) clean; removing the image/container, but not removing
-              intermediate containers
-
-              
-  Location: $SCRIPT_DIR
-  Full Path: $FULL_SCRIPT_NAME  
-EOF
+  pr-cmd config "Creates a config_${SCRIPT_NAME}.rc file in directory containing this script which"
+  options
+  pr-copt image tag container
+  
+  (( $# == 0 )) || die "$1"
   exit 2
 }
 
@@ -55,6 +103,65 @@ USERNAME="$(id -un)" || die "Failed to get user name via id -u"
 GROUPNAME="$(id -gn)" || die "Failed to get group name via id -gn"
 USERID="$(id -u)" || die "Failed to get user ID via id -u"
 GROUPID="$(id -g)" || die "Failed to get user ID via id -g"
+
+# Interaction
+ask-nicely() {
+    print -n -- $'\e[1;97m'"$1"$'\e[0;37m? \e[1;90m[\e[1;4;92mY\e[0;1;90m/\e[0;91mn\e[0;90m]\e[0;37m ' > /dev/tty
+    local RESULT;
+    setopt localoptions extendedglob
+    while read -k1 -s RESULT; do
+        if [[ "$RESULT" == ([YyNn\n\e]) || -n "$RESULT" ]]; then
+            print -n -- $'\e[5D'
+            [[ "$RESULT" != ([Nn\e]) && "${(V)RESULT}" != "^[" ]] && {
+                print -- $'\e[1;92mYes\e[0;90m]'; return 0
+            } || {
+                print -- $'\e[1;91mNo\e[0;90m] '; return 1
+            }
+        fi
+    done
+}
+
+# Command-line
+typeset -A cli_options=( 
+  cmd         run
+  should_run  0
+  full_clean  0
+  is_internal 0
+)
+parse-cli() {
+  if (( $# == 0 )); then
+    cli_options[should_run]=1
+    return 0
+  fi
+  
+  local cmd="$1"; cli_options[cmd]=$1; shift
+
+  (( $# > 0 )) || return 0
+
+  setopt EXTENDED_GLOB
+  () {
+    while (( $# > 0 )); do {
+      case "$1" in
+        -r|--run)   [[ "${cli_options[cmd]}" == (create|build|rebuild) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    cli_options[should_run]=1
+        ;;
+        -f|--full)  [[ "${cli_options[cmd]}" == (clean|rebuild) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    cli_options[full_clean]=1
+        ;;
+        --rebuild)  [[ "${cli_options[cmd]}" == "build" ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    cli_options[is_internal]=1
+        ;;
+        -c)         [[ "${cli_options[cmd]}" == (build|create|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && CONTAINER="$DEFAULT_CONTAINER" || { CONTAINER="$2"; shift; } ;;
+        -i)         [[ "${cli_options[cmd]}" == (build|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE="$DEFAULT_IMAGE"         || { IMAGE="$2"; shift; }     ;;
+        -t)         [[ "${cli_options[cmd]}" == (build|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE_TAG="$DEFAULT_IMAGE_TAG" || { IMAGE_TAG="$2"; shift } ;;
+      esac
+    } always { shift }; done
+  } ${${${(z)${${(qqq)argv[@]}:-}/#(#m)\"-[^-]?*/${${(@)${(s::)MATCH:1:-1}:#-}//(#m)?/-$MATCH}}##\"}%%\"}
+  # yes, that's my own.  It's the world's ugliest expansion in order to support -xyz or -x -y -z.  If Regex gives you two problems, how many problems do I have, now?
+}
 
 # Functions for getting things for parameters
 
@@ -72,6 +179,10 @@ output-dri-devices() {
 
 # Container Functions
 check-container-exists() { docker ps -a --format "{{.Names}}" | grep -Pq '^'"$CONTAINER"'$'; }
+
+# QT_GRAPHICSSYSTEM="native" docker start -i "$CONTAINER"; # Made no difference
+start-container() { docker start -i "$CONTAINER"; }
+
 create-container() {
   local EARTHCFG="${HOME}/.googleearth"
   mkdir -p "$EARTHCFG"
@@ -100,41 +211,41 @@ create-container() {
     if [[ "$ENTRY" == "-v" ]]; then continue; fi
     ifo "${ENTRY%%:*}"    
   done
-
-  heading "Creating Container"
+  
   ifo "Mapped $EARTHCFG to container, which will pick up configuration/logging and can coexist with a non-docker version (however, requires same version!)"
   ifo "docker ${parms[@]} $CONTAINER"
   docker "${parms[@]}" "$CONTAINER"
+
+  if [[ "${cli_options[should_run]}" -eq 1 ]]; then
+    start-container
+  fi
 }
 
-start-container() { QT_GRAPHICSSYSTEM="native" docker start -i "$CONTAINER"; }
 remove-container() { docker rm --force "$CONTAINER"; }
 
 # Image Functions
 check-image-exists() { docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'; }
+remove-image() { docker rmi --force "$IMAGE"; }
+
 build-image() { 
   
   local -a parms=(
     build
-    -t "$IMAGE"
+    -t "$IMAGE:$IMAGE_TAG"
     --build-arg "USERID=$USERID"
     --build-arg "USERNAME=$USERNAME"
     --build-arg "GROUPID=$GROUPID"
     --build-arg "GROUPNAME=$GROUPNAME"
   )
-
-  if [[ "$1" == "clean" ]]; then
-    parms+=( --no-cache )
+  
+  if [[ "${cli_options[full_clean]}" -eq 1 ]]; then
+    parms+=( --no-cache --pull )
   fi
 
   #print -l "${parms[@]}"
   docker "${parms[@]}" ./
 }
-rebuild-image() {
-  remove-image
-  build-image
-}
-remove-image() { docker rmi --force "$IMAGE"; }
+
 
 
 cd "$SCRIPT_DIR"
@@ -149,89 +260,79 @@ cd "$SCRIPT_DIR"
 
 # Uncomment to trap script exits -------------------------------------------------------
 
+local CONFIG_FILE="${SCRIPT_DIR}/config_${SCRIPT_NAME}.rc"
+[[ ! -e "$CONFIG_FILE" ]] || source "$CONFIG_FILE"
+parse-cli "$@"
+typeset -a recurse_parms=( )
 
 
-if (( $# == 0 )); then
-  check-image-exists || {    
-    ifo "Couldn't find image with the name $IMAGE; automatically creating image"
-    build-image
-  }  || die "Failed to build image"
-  set +x
-  check-container-exists || {
-    ifo "Couldn't find a container with the name $CONTAINER; automatically creating container"
-    create-container
-  } || die "Failed to create container"
+# -- Intercept calls to this script, ensuring it is called with its
+#    explicit path and appending "--run" to the parameters when the
+#    script was called with it
+[[ "${cli_options[should_run]}" -eq 1 ]] || recurse_parms+=( --run )
+earth-in-a-box() {
+  if [[ "$1" == "clean" ]]; then
+    "${FULL_SCRIPT_NAME}" "$@" "${recurse_parms[@]:#--run}"
+  else
+    "${FULL_SCRIPT_NAME}" "$@" "${recurse_parms[@]}"
+  fi
+}
 
-  start-container || die "Failed to start container $CONTAINER using image $IMAGE"
-  exit 0  
-elif (( $# >= 1 )); then
-  typeset COMMAND="$1"; shift
-  case "$COMMAND" in
-    clean) 
-              if check-container-exists; then
-                heading "Removing $CONTAINER container"
-                remove-container || die "Failed to remove container"
-              fi
-              if check-image-exists; then
-                heading "Removing $IMAGE image"
-                remove-image || die "Failed to remove existing image"
-              fi
-              
-    ;;
-    create)
-              if check-container-exists; then
-                heading "Removing $CONTAINER container"
-                remove-container || die "Failed to remove existing container"
-              fi
+case "${cli_options[cmd]}" in
 
-              create-container
+  run)  check-image-exists || {          
+          ifo "The '$IMAGE' image did not exist; it is being built -- nothing is changing on your system, only the docker container"
+          earth-in-a-box build || die "Failed to create docker image"
+          exit 0
+        }  
+  
+        check-container-exists || {          
+          ifo "The '$CONTAINER' image did not exist; it is being built -- nothing is changing on your system, only the docker container"
+          earth-in-a-box create || die "Failed to create docker container"
+          exit 0
+        } || die "Failed to create container"
 
-              if [[ "${1:-}" == "--run" ]]; then
-                start-container
-              fi
-    ;;
-    build)
-              heading "Building $IMAGE image"
-              if check-image-exists; then
-                heading "Removing $IMAGE image"
-                remove-image || die "Failed to remove existing image"
-              fi
-              if [[ "${1:-}" == "--rebuild" ]]; then
-                build-image || die "Failed to build image"                
-              else
-                build-image clean || die "Failed to build image"
-              fi
+        start-container
+  ;;
 
-              "${FULL_SCRIPT_NAME}" create
+  clean)    heading "Cleaning Environment"
+            if check-container-exists; then            
+              ifo "Removing '$CONTAINER' container"
+              remove-container > /dev/null || die "Failed to remove container"
+            fi
+            if check-image-exists; then
+              ifo "Removing '$IMAGE' image"
+              remove-image > /dev/null || die "Failed to remove existing image"
+            fi
+            
+  ;;
 
-              if [[ "${1:-}" == "--run" ]]; then
-                start-container
-              fi
+  build)    heading "Building $IMAGE image"            
+            build-image
+            
+            earth-in-a-box create || die "Failed to create docker container"
 
-              
-    ;;
-    rebuild)
-              "${FULL_SCRIPT_NAME}" clean || die "Failed to clean docker components"
-              "${FULL_SCRIPT_NAME}" build --rebuild || die "Failed to rebuild docker components"              
+  ;;
+  create)   heading "Creating $CONTAINER container"
+            if check-container-exists; then
+              heading "Removing '$CONTAINER' container"
+              remove-container > /dev/null || die "Failed to remove container"
+            fi
 
-              if [[ "${1:-}" == "--run" ]]; then
-                start-container
-              fi              
-    ;;
-    *build)
-              
-    ;;
-    *)        
-              print-help   
-    ;;
-  esac
-fi
-# docker run -d \
-#    -v /tmp/.X11-unix:/tmp/.X11-unix \
-#    -e DISPLAY=$DISPLAY \
-#    -e XAUTHORITY="$XAUTHORITY" \
-#    -h "${HOSTNAME}" \
-#    -v /dev/dri/card0:/dev/dri/card0 \
-#    -v "${XAUTHORITY}:${XAUTHORITY}" \
-#    -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority" \
-#    --name  earth earth
+            create-container
+  ;;
+  rebuild)  earth-in-a-box clean                  || die "Failed to clean docker components"            
+            earth-in-a-box build --rebuild --full || die "Failed to rebuild docker components"
+  ;;
+  config)   () {
+              print -- "IMAGE='$IMAGE'"
+              print -- "CONTAINER='$CONTAINER'"
+              print -- "IMAGE_TAG='$IMAGE_TAG'"
+            } > "$CONFIG_FILE"
+            ifo "Set image to '$IMAGE:$IMAGE_TAG'"
+            ifo "Set container to '$CONTAINER'"            
+  ;;
+  *) print-help
+  ;;
+esac
+
