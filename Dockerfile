@@ -30,12 +30,8 @@ RUN chmod 755 /usr/bin/earth-in-a-box.sh
 COPY container/usr/bin/setup.sh /usr/bin/setup.sh
 RUN cd /usr/bin && chmod 755 setup.sh && ./setup.sh ${USERID} ${GROUPID} ${USERNAME}
 
-# RUN groupadd -g "${GROUPID}" "${GROUPNAME}"
-# RUN useradd -d "/home/${USERNAME}" -g "${GROUPID}"
-# RUN groupadd -g 1000 ${USER}
-# RUN useradd -d /home/${USER} -s /bin/bash -m ${USER} -u 1000 -g 1000
-
 USER ${USERNAME}
+WORKDIR "/home/${USER}"
 VOLUME /home/${USER}/.googleearth
 
 CMD /usr/bin/earth-in-a-box.sh

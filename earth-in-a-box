@@ -2,15 +2,40 @@
 
 setopt EXTENDED_GLOB
 
+
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------|         Interaction |
+#                                                                                                             `---------------------'
+
+ask-nicely() {
+    print -n -- $'\e[1;97m'"$1"$'\e[0;37m? \e[1;90m[\e[1;4;92mY\e[0;1;90m/\e[0;91mn\e[0;90m]\e[0;37m ' > /dev/tty
+    local RESULT;
+    setopt localoptions extendedglob
+    while read -k1 -s RESULT; do
+        if [[ "$RESULT" == ([YyNn\n\e]) || -n "$RESULT" ]]; then
+            print -n -- $'\e[5D'
+            [[ "$RESULT" != ([Nn\e]) && "${(V)RESULT}" != "^[" ]] && {
+                print -- $'\e[1;92mYes\e[0;90m]'; return 0
+            } || {
+                print -- $'\e[1;91mNo\e[0;90m] '; return 1
+            }
+        fi
+    done
+}
+
 die() { print -- $'\e[1;91mERROR\e[1;97m:\e[0;37m '"${1:-}"; exit "${2:-1}"; }
 heading() { print -- $'\e[1;95m:: \e[0;37m '"$1"' \e[1;95m::\e[0;37m'; }
-ifo() { print -- $'\e[1;94m -\e[0;37m' "$@" '\e[0;37m'; }
+ifo() { print -- $'\e[1;94m -\e[0;37m' "${(j:\n   :)@}" '\e[0;37m'; }
+
+# =======================                                                                                     ,---------------------.
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++|      Initialization |
+# ============                                                                                                `---------------------'
+
 
 typeset -gr SCRIPT_DIR="${${(%):-%x/..}:A}" FULL_SCRIPT_NAME="${${(%):-%x}:A}"
 typeset -gr SCRIPT_NAME="${FULL_SCRIPT_NAME##*/}"
 typeset -gr LOCAL_DIR="${${:-${LOCAL_PREFIX}/..}:A}"
-typeset -gr LOG_DIR="$LOCAL_DIR/log"
-typeset -gr BIN_DIR="$LOCAL_DIR/bin"
+typeset -gr LOG_DIR="$LOCAL_DIR/log" BIN_DIR="$LOCAL_DIR/bin"
 
 [[ -e "$LOCAL_DIR" ]] || die "Couldn't find local prefix path; set LOCAL_PREFIX"
 [[ -e "$LOG_DIR" ]] || mkdir -p "$LOG_DIR"
@@ -19,6 +44,40 @@ typeset -gr BIN_DIR="$LOCAL_DIR/bin"
 typeset -gr DEFAULT_IMAGE='earth-box' DEFAULT_IMAGE_TAG='latest' DEFAULT_CONTAINER='earth-box' CONTAINER_DESC="Google Earth Pro"
 typeset -g IMAGE="$DEFAULT_IMAGE" IMAGE_TAG="$DEFAULT_IMAGE_TAG" CONTAINER="$DEFAULT_CONTAINER"
 
+local CONFIG_FILE="${SCRIPT_DIR}/config_${SCRIPT_NAME}.rc"
+[[ ! -e "$CONFIG_FILE" ]] || source "$CONFIG_FILE"
+
+typeset -gi USERID=0 GROUPID=0
+typeset -g USERNAME='' GROUPNAME=''
+
+USERNAME="$(id -un)" || die "Failed to get user name via id -u"
+GROUPNAME="$(id -gn)" || die "Failed to get group name via id -gn"
+USERID="$(id -u)" || die "Failed to get user ID via id -u"
+GROUPID="$(id -g)" || die "Failed to get user ID via id -g"
+
+typeset -A cli_options=( 
+  cmd         run
+  should_run  0
+  full_clean  0
+  is_internal 0
+  only_clean_container 0
+)
+
+cd "$SCRIPT_DIR"
+
+# Uncomment to trap script exits -------------------------------------------------------
+
+# trap cleanup SIGINT SIGTERM ERR EXIT
+# cleanup() {
+#   trap - SIGINT SIGTERM ERR EXIT
+#   # script cleanup here
+# }
+
+# Uncomment to trap script exits -------------------------------------------------------
+
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------|        Command-line |
+#                                                                                                             `---------------------'
 
 print-help() {
   local BTAB="${(r:20:: :):-}"; local OTAB="${(r:12:: :):-}"  
@@ -51,8 +110,8 @@ print-help() {
       case "$1" in
         image)     pr-opt "-i,--image"     "Takes an optional parameter of the image name to use instead of $IMAGE. Leave the" \
                                            "parameter off to reset to $DEFAULT_IMAGE" ;;
-        container) pr-opt "-c,--container" "Takes an optional parameter of the image name to use instead of $IMAGE. Leave the" \
-                                           "parameter off to reset to $DEFAULT_IMAGE" ;;        
+        container) pr-opt "-c,--container" "Takes an optional parameter of the container name to use instead of $CONTAINER. Leave the" \
+                                           "parameter off to reset to $DEFAULT_CONTAINER" ;;        
         tag)       pr-opt "-t,--tag"       "Takes an optional parameter of the image name to use instead of $IMAGE_TAG. Leave the" \
                                            "parameter off to reset to $DEFAULT_IMAGE_TAG" ;;
         run)       pr-opt "-r,--run"       "After $CONTAINER starts, run $CONTAINER_DESC" ;;
@@ -71,17 +130,20 @@ print-help() {
   
   print -n -- "  For almost all users, simply running "; bright "${SCRIPT_NAME} "; print -- $'\e[0;34m'"is all that is needed.  For development, "
   print    -- "    maintenance, and removal, the following optional commands can be used."$'\e[0m\n'
+  print    -- "  The docker container is built, created and run using the user account that the script executes as,"
+  print    -- "    therefore, the user must be a member of the 'docker' group and should not be 'root'"$'\e[0m\n'
   print    -- $'Commands:\n'
   pr-cmd build "Builds the $CONTAINER_DESC with the name '$IMAGE:$IMAGE_TAG' using docker build, removes" \
                "any existing '$CONTAINER' if one exists, and creates a new one"
   options-run building/creating
   pr-copt image tag container
   
-  pr-cmd clean "Cleans docker deployment of $CONTAINER_DESC by remocing container named '$CONTAINER'" \
-               "and image named '$IMAGE:$IMAGE_TAG'"
-
-  pr-cmd create  "Creates the $CONTAINER_DESC container '$CONTAINER' from '$IMAGE:$IMAGE_TAG', " \
-                 "creating it if it doesn't exist"                 
+  pr-cmd clean  "Cleans docker deployment of $CONTAINER_DESC by remocing container named '$CONTAINER'" \
+                "and image named '$IMAGE:$IMAGE_TAG'"
+  options
+  pr-opt -c     "Remove the container, only"
+  pr-cmd create "Creates the $CONTAINER_DESC container '$CONTAINER' from '$IMAGE:$IMAGE_TAG', " \
+                "creating it if it doesn't exist"                 
   options-run creating
   pr-copt container
   
@@ -97,37 +159,6 @@ print-help() {
   exit 2
 }
 
-typeset -gi USERID=0 GROUPID=0
-typeset -g USERNAME='' GROUPNAME=''
-USERNAME="$(id -un)" || die "Failed to get user name via id -u"
-GROUPNAME="$(id -gn)" || die "Failed to get group name via id -gn"
-USERID="$(id -u)" || die "Failed to get user ID via id -u"
-GROUPID="$(id -g)" || die "Failed to get user ID via id -g"
-
-# Interaction
-ask-nicely() {
-    print -n -- $'\e[1;97m'"$1"$'\e[0;37m? \e[1;90m[\e[1;4;92mY\e[0;1;90m/\e[0;91mn\e[0;90m]\e[0;37m ' > /dev/tty
-    local RESULT;
-    setopt localoptions extendedglob
-    while read -k1 -s RESULT; do
-        if [[ "$RESULT" == ([YyNn\n\e]) || -n "$RESULT" ]]; then
-            print -n -- $'\e[5D'
-            [[ "$RESULT" != ([Nn\e]) && "${(V)RESULT}" != "^[" ]] && {
-                print -- $'\e[1;92mYes\e[0;90m]'; return 0
-            } || {
-                print -- $'\e[1;91mNo\e[0;90m] '; return 1
-            }
-        fi
-    done
-}
-
-# Command-line
-typeset -A cli_options=( 
-  cmd         run
-  should_run  0
-  full_clean  0
-  is_internal 0
-)
 parse-cli() {
   if (( $# == 0 )); then
     cli_options[should_run]=1
@@ -140,48 +171,82 @@ parse-cli() {
 
   setopt EXTENDED_GLOB
   () {
+    is-cmd() {      
+      while (( $# > 0 )); do {        
+        [[ "$1" == "$cmd" ]] && return 0        
+      } always { shift; } done      
+      return 1
+    }
+    requires-cmd() {
+      local ARG="$1"; shift      
+      is-cmd "$@" || print-help "\e[1;91m$ARG\e[0;37m is not a recognized option for command '$cmd'"
+    }
     while (( $# > 0 )); do {
+      
       case "$1" in
-        -r|--run)   [[ "${cli_options[cmd]}" == (create|build|rebuild) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+        
+        -r|--run)   requires-cmd $1 create build rebuild
                     cli_options[should_run]=1
         ;;
-        -f|--full)  [[ "${cli_options[cmd]}" == (clean|rebuild) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+        
+        -f|--full)  requires-cmd $1 clean build rebuild                      
                     cli_options[full_clean]=1
         ;;
-        --rebuild)  [[ "${cli_options[cmd]}" == "build" ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
+        
+        --rebuild)  requires-cmd $1 rebuild        
                     cli_options[is_internal]=1
         ;;
-        -c)         [[ "${cli_options[cmd]}" == (build|create|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
-                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && CONTAINER="$DEFAULT_CONTAINER" || { CONTAINER="$2"; shift; } ;;
-        -i)         [[ "${cli_options[cmd]}" == (build|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
-                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE="$DEFAULT_IMAGE"         || { IMAGE="$2"; shift; }     ;;
-        -t)         [[ "${cli_options[cmd]}" == (build|config) ]] || print-help "\e[1;91m$1\e[0;37m is not a recognized option for command '${cli_options[cmd]}'"
-                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE_TAG="$DEFAULT_IMAGE_TAG" || { IMAGE_TAG="$2"; shift } ;;
+        
+        -c)         requires-cmd $1 build create config clean
+                    is-cmd clean && cli_options[only_clean_container]=1 || {
+                      [[ "${2:-}" == "-"* || -z "${2:-}" ]] && CONTAINER="$DEFAULT_CONTAINER" \
+                        || { CONTAINER="$2"; shift; }         # Argument for parameter
+                    }
+        ;;
+        -i)         requires-cmd $1 build config
+                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE="$DEFAULT_IMAGE" \
+                      || { IMAGE="$2"; shift; }     
+        ;;
+        
+        -t)         requires-cmd $1 build config
+                    [[ "${2:-}" == "-"* || -z "${2:-}" ]] && IMAGE_TAG="$DEFAULT_IMAGE_TAG" \
+                      || { IMAGE_TAG="$2"; shift } 
+        ;;
       esac
+      
     } always { shift }; done
   } ${${${(z)${${(qqq)argv[@]}:-}/#(#m)\"-[^-]?*/${${(@)${(s::)MATCH:1:-1}:#-}//(#m)?/-$MATCH}}##\"}%%\"}
   # yes, that's my own.  It's the world's ugliest expansion in order to support -xyz or -x -y -z.  If Regex gives you two problems, how many problems do I have, now?
 }
 
-# Functions for getting things for parameters
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------|    Util/Environment |
+#                                                                                                             `---------------------'
 
-output-dri-devices() {
-  local -a cmd=( find /dev/dri -maxdepth 1 -type c )  
-  if [[ "${1:-}" == "-v" ]]; then
-    "${cmd[@]}" | while read DRI_DEV; do
-      print -- -v
-      print -- "$DRI_DEV:$DRI_DEV"
-    done
-  else
-    "${cmd[@]}"
-  fi  
+system-has() > /dev/null 2>&1 { which "$1"; }
+get-dri-devfs() { find /dev/dri -maxdepth 1 -type c; }
+
+dri-create-parms() {
+  local -a cmd=( get-dri-devfs )  
+  "${cmd[@]}" | while read DRI_DEV; do
+    print -- -v
+    print -- "$DRI_DEV:$DRI_DEV"
+    if [[ "$DRI_DEV" == *"/card"* ]]; then
+      print -- --device
+      print -- "$DRI_DEV"
+    fi
+  done
 }
 
-# Container Functions
-check-container-exists() { docker ps -a --format "{{.Names}}" | grep -Pq '^'"$CONTAINER"'$'; }
 
-# QT_GRAPHICSSYSTEM="native" docker start -i "$CONTAINER"; # Made no difference
-start-container() { docker start -i "$CONTAINER"; }
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------| Container Functions |
+#                                                                                                             `---------------------'
+
+check-container-exists() { docker ps -a --format "{{.Names}}" | grep -Pq '^'"$CONTAINER"'$'; }
+start-container() {   
+  docker start -i "$CONTAINER"; 
+}
 
 create-container() {
   local EARTHCFG="${HOME}/.googleearth"
@@ -190,31 +255,39 @@ create-container() {
   local -a parms=(
     create    
     --name "$CONTAINER"    
-    --shm-size 128M
-    -a STDIN -a STDOUT -a STDERR 
-    -e "DISPLAY=unix$DISPLAY"
-    -e "XAUTHORITY=$XAUTHORITY"
-    -h "$HOSTNAME"    
+    --ipc host
+    -e "DISPLAY" -e "XAUTHORITY"
+    -h "$HOSTNAME"
+    -w "$HOME"
     -u "$USERID:$GROUPID"
     -v "$XAUTHORITY:$XAUTHORITY"
     -v "${HOME}/.Xauthority:/home/${USER}/.Xauthority"
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw
     -v "/etc/group:/etc/group:ro" 
-    -v "/dev/shm:/dev/shm"    
     -v "$EARTHCFG:$EARTHCFG"
   )
   
+  [[ -e "/etc/sudoers.d" ]] || parms+=( -v "/etc/sudoers.d:/etc/sudoers.d:ro" )
+  
   heading "Detected DRI Devices"
 
-  output-dri-devices -v | while read ENTRY; do    
+  local ENTRY=,LINE=
+  local -Ua dri_devs
+  dri-create-parms | while read ENTRY; do    
     parms+=( "$ENTRY" )
-    if [[ "$ENTRY" == "-v" ]]; then continue; fi
-    ifo "${ENTRY%%:*}"    
+    if [[ "$ENTRY" == "-"* ]]; then continue; fi    
+    dri_devs+=( "${ENTRY%:*}" )
+  done
+
+  for dridev in "${dri_devs[@]}"; do
+    print -- "\e[1;93m  ${dridev}\e[0m"
   done
   
-  ifo "Mapped $EARTHCFG to container, which will pick up configuration/logging and can coexist with a non-docker version (however, requires same version!)"
-  ifo "docker ${parms[@]} $CONTAINER"
-  docker "${parms[@]}" "$CONTAINER"
+  ifo "Mapped $EARTHCFG to container, which will pick up configuration/logging" \
+      "and can coexist with a non-docker version (however, requires same version!)"
+  
+  ifo "docker ${(j: :)parms[@]} $CONTAINER"
+  docker "${parms[@]}" "$CONTAINER" || die "Failed to create container"
 
   if [[ "${cli_options[should_run]}" -eq 1 ]]; then
     start-container
@@ -222,10 +295,18 @@ create-container() {
 }
 
 remove-container() { docker rm --force "$CONTAINER"; }
+remove-container-if-exists() {
+  if check-container-exists; then            
+    ifo "Removing '$CONTAINER' container"
+    remove-container > /dev/null || die "Failed to remove container"
+  fi
+}
 
-# Image Functions
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------|     Image Functions |
+#                                                                                                             `---------------------'
 check-image-exists() { docker images --format "{{.Repository}}" | grep -Pq '^'"$IMAGE"'$'; }
-remove-image() { docker rmi --force "$IMAGE"; }
+remove-image() docker rmi --force "$IMAGE"
 
 build-image() { 
   
@@ -247,36 +328,49 @@ build-image() {
 }
 
 
-
-cd "$SCRIPT_DIR"
-
-# Uncomment to trap script exits -------------------------------------------------------
-
-# trap cleanup SIGINT SIGTERM ERR EXIT
-# cleanup() {
-#   trap - SIGINT SIGTERM ERR EXIT
-#   # script cleanup here
-# }
-
-# Uncomment to trap script exits -------------------------------------------------------
-
-local CONFIG_FILE="${SCRIPT_DIR}/config_${SCRIPT_NAME}.rc"
-[[ ! -e "$CONFIG_FILE" ]] || source "$CONFIG_FILE"
-parse-cli "$@"
-typeset -a recurse_parms=( )
-
-
-# -- Intercept calls to this script, ensuring it is called with its
-#    explicit path and appending "--run" to the parameters when the
-#    script was called with it
-[[ "${cli_options[should_run]}" -eq 1 ]] || recurse_parms+=( --run )
+#                                                                                                             ,---------------------.
+# ------------------------------------------------------------------------------------------------------------|   Command Redirects |
+#                                                                                                             `---------------------'
+docker() command docker "$@"
 earth-in-a-box() {
   if [[ "$1" == "clean" ]]; then
     "${FULL_SCRIPT_NAME}" "$@" "${recurse_parms[@]:#--run}"
-  else
+  else    
     "${FULL_SCRIPT_NAME}" "$@" "${recurse_parms[@]}"
   fi
 }
+
+
+
+# =======================                                                                         ------------,---------------------.
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++|              Script |
+# ============                                                                         -----------------------`---------------------'
+
+parse-cli "$@"
+
+# -- `earth-in-a-box` uses this to re-append --run for recursive calls
+typeset -a recurse_parms=( )
+[[ "${cli_options[should_run]}" -eq 0 ]] || recurse_parms+=( --run )
+
+
+# ------------------------------------------------------------------------------------------------------------ Confirm Pre-requisites
+
+if ! system-has docker; then
+  if system-has zypper && system-has sudo; then
+    if ask-nicely "Docker does not appear to be installed, shall I try to install it?"; then
+      sudo zypper in -y docker    
+    else
+      die "Aborted"
+    fi
+  else
+    print-help "Docker was not found"
+  fi
+fi
+
+docker ps > /dev/null 2>&1 \
+  || print-help "Cannot execute 'docker ps'; you likely are not a member of the appropriate security group (docker)"
+
+# ------------------------------------------------------------------------------------------------------------------ Execute Commands
 
 case "${cli_options[cmd]}" in
 
@@ -295,35 +389,33 @@ case "${cli_options[cmd]}" in
         start-container
   ;;
 
-  clean)    heading "Cleaning Environment"
-            if check-container-exists; then            
-              ifo "Removing '$CONTAINER' container"
-              remove-container > /dev/null || die "Failed to remove container"
-            fi
-            if check-image-exists; then
-              ifo "Removing '$IMAGE' image"
-              remove-image > /dev/null || die "Failed to remove existing image"
-            fi
-            
+  clean)    heading "Inspecting Environment for Cleaning"
+            remove-container-if-exists
+            if [[ "${cli_options[only_clean_container]}" -eq 0 ]]; then
+              if check-image-exists; then
+                ifo "Removing '$IMAGE' image"
+                remove-image > /dev/null || die "Failed to remove existing image"
+              fi
+            fi  
   ;;
 
   build)    heading "Building $IMAGE image"            
             build-image
             
             earth-in-a-box create || die "Failed to create docker container"
-
   ;;
-  create)   heading "Creating $CONTAINER container"
-            if check-container-exists; then
-              heading "Removing '$CONTAINER' container"
-              remove-container > /dev/null || die "Failed to remove container"
-            fi
-
+  
+  create)   earth-in-a-box clean -c
+            heading "Creating $CONTAINER container"
+            
+            
             create-container
   ;;
+
   rebuild)  earth-in-a-box clean                  || die "Failed to clean docker components"            
             earth-in-a-box build --rebuild --full || die "Failed to rebuild docker components"
   ;;
+
   config)   () {
               print -- "IMAGE='$IMAGE'"
               print -- "CONTAINER='$CONTAINER'"
@@ -332,7 +424,8 @@ case "${cli_options[cmd]}" in
             ifo "Set image to '$IMAGE:$IMAGE_TAG'"
             ifo "Set container to '$CONTAINER'"            
   ;;
+
   *) print-help
   ;;
-esac
 
+esac
