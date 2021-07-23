@@ -52,12 +52,3 @@ You can't simply distribute Google Earth Pro; it's commercial.  Running `earth-i
 Both of my primary computers run OpenSUSE Tumbleweed and I use Google Earth mostly on laptops which have `nvidia` proprietary drivers running.  Some of the things that work, here, might work because of my odd setup -- the only place I've tested it.
 
 You may need to worry about `cgroups` and `apparmor` profiles, but I didn't.  If you send me a PR, I'm happy to review/apply if it doesn't break anything.  Good luck to ya' though, this is very much an "on-the-side" project; and it's written in `zsh`/`bash` and `Dockerfile`!
-
-Current Research:
-
- - https://stackoverflow.com/questions/24095968/docker-for-gui-based-environments/55989420#55989420
- - https://stackoverflow.com/questions/35040020/gui-qt-application-in-a-docker-container/35040140#35040140
- - https://stackoverflow.com/questions/52501594/qt-app-ui-elements-randomly-rendered-as-blank-black-in-docker (unhelpful)
-
-
-This may only be happening on my workstation, which runs OpenSUSE Tumbleweed, the `nvidia` proprietary driver and Xorg
