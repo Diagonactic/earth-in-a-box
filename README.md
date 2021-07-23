@@ -21,7 +21,7 @@ Every time it is run that way it checks that the image and container exists, cre
  - The script to run everything requires `zsh`
  - I can't distribute the actual Google Earth Pro binary, that's Google's and it's forbidden. So it's done via the package repository when building the docker file.  If they change the URL or decide to stop offering it for free, this will stop working.
 
-**BOTTOM LINE:** I wrote this for myself.  It works on in one or two places that I use Google Earth and it was a little bit of a pain to figure out.  It might not work for you.  If it doesn't, kick an issue out there, but I probably won't look into it if it involves installing a different version of Linux; it's just not that important to me.  I'm generally glad to help out, though, if time allows and you give me enough information to be useful.
+**BOTTOM LINE:** I wrote this for myself and thought I'd share.  I hope it works for you.  If it doesn't, pop in an issue and I'll do my best but I commit to nothing :).  Add a PR and you're more likely to see that handled.
 
 ## Change Highlights
 
